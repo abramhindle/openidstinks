@@ -13,21 +13,24 @@ my $nos = Net::OpenID::Server->new(
 	#get_user => sub { "lolhy" },
 	get_identity => sub {
 		my( $u, $identity ) = @_;
+		return $cgi->param('user') || $u || "lolhy";
 		return $identity unless $u;
 		return "http://churchturing.org/openid/index.cgi?user="."lolhy"
 	},
 	#get_identity => sub { $cgi->param('userid') || "lolhy" },
 	is_identity  => sub {
 		my ($u, $identity) = @_;
+		return 1;
 		return $u
 	},
 	is_trusted   => sub {
 		my ($u,$trust_root,$id_identity) = @_;
+		return 1;
 		return $u
 	},
 	endpoint_url => "http://churchturing.org/openid/server.cgi",
 	#setup_url => "http://churchturing.org/openid/index.cgi",
-	setup_url => "http://churchturing.org/openid/login.cgi",
+	setup_url => "http://churchturing.org/openid/server.cgi",
 	server_secret => "balls",
 );
 
@@ -35,7 +38,15 @@ my ($type, $data) = $nos->handle_page;
 #warn "$type,$data";
 warn "TYPE $type";
 if ($type eq "redirect") {
-	print $cgi->redirect($data);
+        my $url = $nos->signed_return_url(
+		identity      => $nos->args('openid.identity'),
+		return_to     => $nos->args('openid.return_to'),
+		assoc_handle  => $nos->args('openid.assoc_handle'),
+		trust_root    => $nos->args('openid.trust_root'));
+	$url =~ s/invalidate_handle/assoc_handle/; # Hack for Net::OpenID::Server.
+	#print $cgi->redirect($url);
+	print "Status: 301\n";
+	print "Location: $url\n\n";
 } elsif ($type eq "setup") {
 	my %setup_opts = %$data;
 	# ... show them setup page(s), with options from setup_map
@@ -49,9 +60,18 @@ if ($type eq "redirect") {
 	}
 	my $url = "http://churchturing.org/openid/login.cgi?".join("&",@query);
 	warn $url;
-	print $cgi->redirect($url);
+	print "Status: 301\n";
+	print "Location: $url\n\n";
+
 } else {
-	print $cgi->header(-type => $type);
-	print $data;
+        # Hack for Net::OpenID::Server.
+	if ($type eq 'text/plain' && $data =~ /^assoc_handle:\r?\n/s)
+	{
+		my $ahandle = 'assoc_handle:' . Net::OpenID::Server::rand_chars(10);
+		$data =~ s/^assoc_handle:/$ahandle/e;
+		$data =~ s/^expires_in:0/expires_in:3600/m;
+	}
 	warn "Sending $data";
+	print "Content-Type: $type\n\n";
+	print $data;
 }
